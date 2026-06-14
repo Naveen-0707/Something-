@@ -18,6 +18,11 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute must always win, even over the display rules set on
+   overlays like .empty-state (display:grid) and .graph-view (display:flex).
+   Without this, hiding those overlays in JS silently fails. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
