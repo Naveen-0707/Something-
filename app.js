@@ -16,8 +16,9 @@
   const $ = (sel) => document.querySelector(sel);
   const noteList = $("#noteList");
   const titleInput = $("#titleInput");
-  const bodyInput = $("#bodyInput");
-  const preview = $("#preview");
+  const editor = $("#editor");
+  const rawInput = $("#rawInput");
+  let rawMode = false;
   const backlinksEl = $("#backlinks");
   const searchInput = $("#search");
   const savedHint = $("#savedHint");
@@ -242,7 +243,7 @@
     let listType = null; // 'ul' | 'ol'
     let inQuote = false;
 
-    const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+    const closeList = () => { if (listType) { html += listType === "ol" ? "</ol>" : "</ul>"; listType = null; } };
     const closeQuote = () => { if (inQuote) { html += "</blockquote>"; inQuote = false; } };
 
     for (let raw of lines) {
@@ -266,8 +267,15 @@
       if (bq) { closeList(); if (!inQuote) { html += "<blockquote>"; inQuote = true; } html += inline(bq[1]) + "<br/>"; continue; }
       closeQuote();
 
+      let task = line.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/);
       let ul = line.match(/^\s*[-*+]\s+(.*)$/);
       let ol = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (task) {
+        if (listType !== "task") { closeList(); html += `<ul class="tasks">`; listType = "task"; }
+        const done = task[1].toLowerCase() === "x";
+        html += `<li class="task${done ? " done" : ""}"><input type="checkbox"${done ? " checked" : ""}> ${inline(task[2])}</li>`;
+        continue;
+      }
       if (ul) { if (listType !== "ul") { closeList(); html += "<ul>"; listType = "ul"; } html += `<li>${inline(ul[1])}</li>`; continue; }
       if (ol) { if (listType !== "ol") { closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
 
@@ -406,9 +414,8 @@
     if (!n) return;
     activeId = id;
     titleInput.value = n.title;
-    bodyInput.value = n.body;
+    setEditor(n.body, n.title);
     persist();
-    if (!preview.hidden) updatePreview();
     renderList(searchInput.value);
     renderBacklinks();
     renderSmartPanel();
@@ -461,30 +468,25 @@
   function linkActiveNoteTo(title) {
     const n = getNote(activeId);
     if (!n) return;
-    if (extractLinks(n.body).some((l) => norm(l) === norm(title))) return;
+    if (allLinkTitles(n).some((l) => norm(l) === norm(title))) return;
     const sep = n.body && !n.body.endsWith("\n") ? "\n\n" : "";
     n.body += `${sep}Related: [[${title}]]`;
-    bodyInput.value = n.body;
+    setEditor(n.body, n.title);
     flushSaveImmediate();
-    if (!preview.hidden) updatePreview();
     toast(`Linked to “${title}”`);
-  }
-
-  function updatePreview() {
-    preview.innerHTML = renderMarkdown(bodyInput.value, titleInput.value);
   }
 
   function flushSave() {
     const n = getNote(activeId);
     if (!n) return;
     n.title = titleInput.value;
-    n.body = bodyInput.value;
+    n.body = getBodyMarkdown();
     n.updated = Date.now();
     persist();
     savedHint.textContent = "Saved ✓";
     renderList(searchInput.value);
     renderBacklinks();
-    if (!preview.hidden) updatePreview();
+    renderSmartPanel();
     setTimeout(() => (savedHint.textContent = ""), 1200);
   }
 
@@ -509,13 +511,90 @@
     if (!n) { n = createNote(title, ""); toast(`Created “${title}”`); }
     activeId = n.id;
     refreshAll();
-    if (!preview.hidden) updatePreview();
-    titleInput.focus();
   }
 
   function flushSaveImmediate() {
     clearTimeout(saveTimer);
     flushSave();
+  }
+
+  // ============================================================
+  //  RICH LIVE EDITOR — contenteditable, stores markdown
+  // ============================================================
+  // Render markdown into the editor (formatted, live). Keep raw textarea synced.
+  function setEditor(md, title) {
+    rawInput.value = md || "";
+    if (rawMode) { editor.hidden = true; rawInput.hidden = false; return; }
+    rawInput.hidden = true; editor.hidden = false;
+    editor.innerHTML = md && md.trim() ? renderMarkdown(md, title) : "";
+    editor.classList.toggle("is-empty", !(md && md.trim()));
+  }
+
+  // Read the current note body as markdown (from whichever surface is active).
+  function getBodyMarkdown() {
+    return rawMode ? rawInput.value : htmlToMd(editor);
+  }
+
+  // Serialize the editor's HTML back into markdown.
+  function htmlToMd(root) {
+    const out = [];
+    const inlineMd = (node) => {
+      let s = "";
+      node.childNodes.forEach((c) => {
+        if (c.nodeType === 3) { s += c.textContent; return; }
+        if (c.nodeType !== 1) return;
+        const tag = c.nodeName.toLowerCase();
+        if (tag === "strong" || tag === "b") s += "**" + inlineMd(c) + "**";
+        else if (tag === "em" || tag === "i") s += "*" + inlineMd(c) + "*";
+        else if (tag === "del" || tag === "s") s += "~~" + inlineMd(c) + "~~";
+        else if (tag === "code") s += "`" + c.textContent + "`";
+        else if (tag === "br") s += "\n";
+        else if (tag === "a") {
+          if (c.classList && c.classList.contains("wikilink")) {
+            const target = (c.getAttribute("data-link") || c.textContent).trim();
+            const label = c.textContent.trim();
+            // Auto-links re-derive from plain text, so emit the label only.
+            s += c.classList.contains("auto") || norm(target) === norm(label)
+              ? label : `[[${target}|${label}]]`;
+          } else {
+            s += `[${c.textContent}](${c.getAttribute("href") || ""})`;
+          }
+        } else s += inlineMd(c);
+      });
+      return s;
+    };
+    const pushBlock = (md) => { out.push(md); out.push(""); };
+    root.childNodes.forEach((c) => {
+      if (c.nodeType === 3) { const t = c.textContent.trim(); if (t) pushBlock(t); return; }
+      if (c.nodeType !== 1) return;
+      const tag = c.nodeName.toLowerCase();
+      if (/^h[1-6]$/.test(tag)) pushBlock("#".repeat(+tag[1]) + " " + inlineMd(c));
+      else if (tag === "ul" || tag === "ol") {
+        let i = 1;
+        c.childNodes.forEach((li) => {
+          if (!li.nodeName || li.nodeName.toLowerCase() !== "li") return;
+          if (li.classList && li.classList.contains("task")) {
+            const box = li.querySelector && li.querySelector("input");
+            const checked = box && box.checked ? "x" : " ";
+            out.push(`- [${checked}] ` + inlineMd(li).trim());
+          } else out.push((tag === "ol" ? (i++) + ". " : "- ") + inlineMd(li));
+        });
+        out.push("");
+      } else if (tag === "blockquote") inlineMd(c).split("\n").forEach((l) => out.push("> " + l)), out.push("");
+      else if (tag === "pre") { out.push("```"); out.push(c.textContent.replace(/\n$/, "")); out.push("```"); out.push(""); }
+      else if (tag === "table") {
+        c.childNodes.forEach((tr) => {
+          if (!tr.nodeName || tr.nodeName.toLowerCase() !== "tr") return;
+          const cells = [];
+          tr.childNodes.forEach((td) => { if (td.nodeName && /^(td|th)$/i.test(td.nodeName)) cells.push(inlineMd(td).trim()); });
+          out.push("| " + cells.join(" | ") + " |");
+        });
+        out.push("");
+      }
+      else if (tag === "hr") pushBlock("---");
+      else { const t = inlineMd(c); if (t.trim() || tag === "p" || tag === "div") pushBlock(t); }
+    });
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   // ============================================================
@@ -760,7 +839,7 @@
       ["Alex Chen",
         "# Alex Chen #people\n\n**Role:** Frontend Engineer\n**Owns:** build & deploy for [[Project: Apollo Website Redesign]]\n**Email:** alex@example.com\n\nWaiting on [[Decision: New Brand Colors]] before final styling."],
       ["Task: Homepage Mockup",
-        "# Task: Homepage Mockup #task\n\n**Owner:** [[Priya Sharma]] · **Due:** Friday · **Status:** In progress\n**Part of:** [[Project: Apollo Website Redesign]]\n\nBlocked until [[Decision: New Brand Colors]] is final, then deliver desktop + mobile mockups."],
+        "# Task: Homepage Mockup #task\n\n**Owner:** [[Priya Sharma]] · **Due:** Friday · **Status:** In progress\n**Part of:** [[Project: Apollo Website Redesign]]\n\nBlocked until [[Decision: New Brand Colors]] is final, then deliver the mockups.\n\n## Checklist\n- [x] Gather references\n- [ ] Desktop mockup\n- [ ] Mobile mockup\n- [ ] Review with the team"],
       ["Decision: New Brand Colors",
         "# Decision: New Brand Colors #decision\n\n**Decided in:** [[Apollo Kickoff Meeting]]\n\nUse a warm 'ink on paper' palette (deep charcoal + blue/cyan accents) for [[Project: Apollo Website Redesign]].\n\n**Why:** higher contrast, easier on the eyes, on-brand. Affects [[Task: Homepage Mockup]] and Alex's styling."],
       ["Apollo Weekly Status",
@@ -788,14 +867,13 @@
   delegated(noteList, ".note-item", "click", (_, el) => openNote(el.dataset.id));
   // Backlink click
   delegated(backlinksEl, ".backlink-item", "click", (_, el) => openNote(el.dataset.id));
-  // Wiki-link click (in preview)
-  delegated(preview, ".wikilink", "click", (e, el) => {
+  // Wiki-link click (in the live editor) — navigate instead of editing.
+  delegated(editor, ".wikilink", "click", (e, el) => {
     e.preventDefault();
     navigateToTitle(el.dataset.link);
   });
 
   titleInput.addEventListener("input", scheduleSave);
-  bodyInput.addEventListener("input", () => { scheduleSave(); if (!preview.hidden) updatePreview(); });
 
   searchInput.addEventListener("input", () => renderList(searchInput.value));
 
@@ -812,6 +890,7 @@
       backdrop.classList.remove("show");
     }
     titleInput.focus();
+    setEditor("", "");
   }
 
   $("#deleteBtn").addEventListener("click", () => {
@@ -824,14 +903,94 @@
     }
   });
 
-  $("#previewToggle").addEventListener("click", togglePreview);
-  function togglePreview() {
-    const show = preview.hidden;
-    preview.hidden = !show;
-    bodyInput.hidden = show;
-    if (show) updatePreview();
-    $("#previewToggle").textContent = show ? "✎ Edit" : "👁 Preview";
+  // ---------- Raw markdown toggle (safety / power users) ----------
+  $("#rawToggle").addEventListener("click", toggleRaw);
+  function toggleRaw() {
+    if (!rawMode) {
+      // Switch to raw: serialize current rich content first.
+      rawInput.value = htmlToMd(editor);
+      rawMode = true; editor.hidden = true; rawInput.hidden = false;
+      $("#rawToggle").textContent = "✦ Rich";
+      rawInput.focus();
+    } else {
+      rawMode = false;
+      setEditor(rawInput.value, titleInput.value);
+      $("#rawToggle").textContent = "⌨ Raw";
+      editor.focus();
+    }
   }
+
+  // ---------- Live editor behavior ----------
+  // Save (debounced) whenever the user types in the rich editor or raw box.
+  editor.addEventListener("input", () => {
+    editor.classList.toggle("is-empty", editor.textContent.trim() === "");
+    scheduleSave();
+  });
+  rawInput.addEventListener("input", scheduleSave);
+
+  // When focus leaves the editor, re-render so markdown shortcuts, **bold**,
+  // links and auto-links "settle" into formatted blocks/pills.
+  editor.addEventListener("blur", () => {
+    if (rawMode) return;
+    const md = htmlToMd(editor);
+    const n = getNote(activeId);
+    if (n) { n.body = md; persist(); }
+    setEditor(md, titleInput.value);
+  });
+
+  // Markdown input rules: turn line-start shortcuts into blocks as you type space.
+  const blockEl = () => {
+    let node = window.getSelection && window.getSelection().anchorNode;
+    while (node && node !== editor && !(node.nodeType === 1 && /^(p|div|h[1-6]|li|blockquote)$/i.test(node.nodeName))) node = node.parentNode;
+    return node && node !== editor ? node : null;
+  };
+  const caretToEnd = (el) => {
+    const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  };
+  editor.addEventListener("input", (e) => {
+    if (rawMode || e.inputType !== "insertText" || e.data !== " ") return;
+    const blk = blockEl();
+    if (!blk) return;
+    const text = blk.textContent;
+    const rules = [
+      [/^# $/, () => swapBlock(blk, "h1", "")],
+      [/^## $/, () => swapBlock(blk, "h2", "")],
+      [/^### $/, () => swapBlock(blk, "h3", "")],
+      [/^> $/, () => swapBlock(blk, "blockquote", "")],
+      [/^- $/, () => makeList(blk, false)],
+      [/^\* $/, () => makeList(blk, false)],
+      [/^\[\] $/, () => makeList(blk, true)],
+      [/^\[ \] $/, () => makeList(blk, true)],
+    ];
+    for (const [re, fn] of rules) if (re.test(text)) { fn(); break; }
+  });
+  function swapBlock(blk, tag, keepFrom) {
+    const el = document.createElement(tag);
+    el.innerHTML = "<br>";
+    blk.replaceWith(el);
+    caretToEnd(el);
+    scheduleSave();
+  }
+  function makeList(blk, task) {
+    const ul = document.createElement("ul");
+    if (task) ul.className = "tasks";
+    const li = document.createElement("li");
+    if (task) { li.className = "task"; li.innerHTML = `<input type="checkbox"> `; }
+    else li.innerHTML = "<br>";
+    ul.appendChild(li);
+    blk.replaceWith(ul);
+    caretToEnd(li);
+    scheduleSave();
+  }
+
+  // Toggle task checkboxes by tapping them.
+  editor.addEventListener("change", (e) => {
+    if (e.target && e.target.type === "checkbox") {
+      e.target.closest("li")?.classList.toggle("done", e.target.checked);
+      scheduleSave();
+    }
+  });
 
   // ---------- Mobile sidebar toggle ----------
   const sidebar = $("#sidebar");
@@ -918,93 +1077,8 @@
     renderList(searchInput.value);
   });
 
-  // ---------- Wiki-link [[ autocomplete ----------
-  const linkAuto = document.createElement("div");
-  linkAuto.className = "link-auto";
-  linkAuto.hidden = true;
-  (document.querySelector(".editor-body") || document.body).appendChild(linkAuto);
-  let autoItems = [], autoSel = 0;
-
-  function currentLinkQuery() {
-    const pos = bodyInput.selectionStart;
-    const before = bodyInput.value.slice(0, pos);
-    // [[ trigger — explicit wiki-link
-    const open = before.lastIndexOf("[[");
-    if (open !== -1) {
-      const between = before.slice(open + 2);
-      if (!/[\]\n]/.test(between) && !between.includes("[[")) {
-        return { open, query: between, pos, trigger: "[[" };
-      }
-    }
-    // @ trigger — modern mention (inserts a plain name that auto-links)
-    const at = before.lastIndexOf("@");
-    if (at !== -1) {
-      const between = before.slice(at + 1);
-      // keep it short: up to ~20 chars, no newline, must look like a name fragment
-      if (!/[\n]/.test(between) && between.length <= 20) {
-        return { open: at, query: between, pos, trigger: "@" };
-      }
-    }
-    return null;
-  }
-
-  function showAuto() {
-    const ctx = currentLinkQuery();
-    if (!ctx) return hideAuto();
-    const q = norm(ctx.query);
-    const matches = notes
-      .filter((n) => n.id !== activeId && n.title.trim() && norm(n.title).includes(q))
-      .slice(0, 6)
-      .map((n) => ({ title: n.title, isNew: false }));
-    if (ctx.query.trim() && !notes.some((n) => norm(n.title) === q)) {
-      matches.push({ title: ctx.query.trim(), isNew: true });
-    }
-    if (matches.length === 0) return hideAuto();
-    autoItems = matches; autoSel = 0;
-    renderAuto();
-    linkAuto.hidden = false;
-  }
-
-  function renderAuto() {
-    linkAuto.innerHTML = autoItems.map((m, i) =>
-      `<div class="la-item${i === autoSel ? " sel" : ""}" data-i="${i}">` +
-      (m.isNew ? `<span class="la-new">+ Create “${escapeHtml(m.title)}”</span>` : escapeHtml(m.title)) +
-      `</div>`).join("") +
-      `<div class="la-hint">↑↓ navigate · Enter insert · Esc close</div>`;
-  }
-
-  function hideAuto() { linkAuto.hidden = true; autoItems = []; }
-
-  function applyAuto(i) {
-    const m = autoItems[i];
-    const ctx = currentLinkQuery();
-    if (!m || !ctx) return hideAuto();
-    const val = bodyInput.value;
-    // @ inserts a plain name (auto-links); [[ inserts an explicit wiki-link.
-    const insert = ctx.trigger === "@" ? m.title : "[[" + m.title + "]]";
-    bodyInput.value = val.slice(0, ctx.open) + insert + val.slice(ctx.pos);
-    const caret = ctx.open + insert.length;
-    bodyInput.setSelectionRange(caret, caret);
-    hideAuto();
-    scheduleSave();
-    if (!preview.hidden) updatePreview();
-    bodyInput.focus();
-  }
-
-  linkAuto.addEventListener("pointerdown", (e) => {
-    const item = e.target.closest(".la-item");
-    if (item) { e.preventDefault(); applyAuto(+item.dataset.i); }
-  });
-  bodyInput.addEventListener("input", showAuto);
-  bodyInput.addEventListener("click", showAuto);
-  bodyInput.addEventListener("blur", () => setTimeout(hideAuto, 150));
-  bodyInput.addEventListener("keydown", (e) => {
-    if (linkAuto.hidden) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); autoSel = (autoSel + 1) % autoItems.length; renderAuto(); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); autoSel = (autoSel - 1 + autoItems.length) % autoItems.length; renderAuto(); }
-    else if (e.key === "Enter") { e.preventDefault(); applyAuto(autoSel); }
-    else if (e.key === "Escape") { e.preventDefault(); hideAuto(); }
-  });
+  // Linking in the rich editor: just type a note's name (auto-links on blur),
+  // or type [[Name]] / @Name — both render as pills when the block settles.
 
   window.addEventListener("resize", () => { if (!graphView.hidden) resizeCanvas(); });
 
@@ -1018,12 +1092,12 @@
     const k = e.key.toLowerCase();
     if (k === "n") { e.preventDefault(); newNote(); }
     else if (k === "k") { e.preventDefault(); searchInput.focus(); searchInput.select(); }
-    else if (k === "e") { e.preventDefault(); togglePreview(); }
+    else if (k === "e") { e.preventDefault(); toggleRaw(); }
     else if (k === "g") { e.preventDefault(); graphView.hidden ? openGraph() : closeGraph(); }
   });
 
   // ---------- Boot ----------
-  const BUILD = "v8";
+  const BUILD = "v9";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();

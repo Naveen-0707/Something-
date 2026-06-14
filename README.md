@@ -10,6 +10,9 @@ no build step. Your notes never leave your browser.
 
 - **`[[Wiki-links]]` with autocomplete** — start typing `[[` and pick a note from a
   dropdown (or create a new one). Click a link to jump there. Aliases: `[[Note|label]]`.
+- **Live rich editor** — type and see formatting instantly (no preview toggle):
+  headings/lists/checkboxes via Markdown shortcuts, **bold**/*italic* settle as
+  you go, and links render as pills. A raw-Markdown toggle is always available.
 - **Smart auto-connect** — the app reads your notes and suggests related ones
   (one tap to link), and the graph draws **dashed lines** between notes that are
   similar by content (TF-IDF + cosine similarity, all in-browser).
