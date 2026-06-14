@@ -10,6 +10,10 @@ no build step. Your notes never leave your browser.
 
 - **`[[Wiki-links]]` with autocomplete** — start typing `[[` and pick a note from a
   dropdown (or create a new one). Click a link to jump there. Aliases: `[[Note|label]]`.
+- **Smart auto-connect** — the app reads your notes and suggests related ones
+  (one tap to link), and the graph draws **dashed lines** between notes that are
+  similar by content (TF-IDF + cosine similarity, all in-browser).
+- **Summarize** — one-tap extractive summary of any note.
 - **Tags** — write `#anything` in a note; tap a tag chip in the sidebar to filter.
 - **Pin notes** — keep important notes at the top of the list.
 - **Backlinks** — every note shows which other notes point to it, with context snippets.

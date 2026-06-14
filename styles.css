@@ -245,6 +245,22 @@ html, body {
 .wikilink:hover { background: var(--accent-soft); }
 .wikilink.missing { color: var(--text-faint); border-bottom-color: var(--text-faint); }
 
+/* ---------- Smart panel (suggestions + summary) ---------- */
+.smart-panel {
+  border-top: 1px solid var(--border);
+  padding: 12px 22px;
+  background: var(--bg-elev);
+}
+.smart-panel:empty { display: none; }
+.smart-panel h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); }
+.sp-summary { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.sp-summary p { margin: 0; color: var(--text); line-height: 1.55; }
+.related-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: var(--bg-elev2); border-radius: 8px; margin-bottom: 6px; }
+.related-item .ri-title { font-weight: 600; font-size: 13.5px; cursor: pointer; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.related-item .ri-title:hover { color: var(--accent); }
+.related-item .ri-score { font-size: 11px; color: var(--text-faint); }
+.related-item .ri-link { padding: 5px 10px; font-size: 12px; flex-shrink: 0; }
+
 /* ---------- Backlinks ---------- */
 .backlinks {
   border-top: 1px solid var(--border);
