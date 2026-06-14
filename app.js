@@ -94,26 +94,66 @@
     return out;
   }
 
-  // Notes that link TO the given note (by title).
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Titles of OTHER notes that appear as plain text in this note (auto-links).
+  function detectMentions(note) {
+    const out = [];
+    for (const other of notes) {
+      if (other.id === note.id || !other.title.trim()) continue;
+      const re = new RegExp(`(?<![\\w[])${escapeRegex(other.title)}(?![\\w\\]])`, "i");
+      if (re.test(note.body)) out.push(other.title);
+    }
+    return out;
+  }
+
+  // All links from a note = explicit [[links]] + auto-detected name mentions.
+  function allLinkTitles(note) {
+    return [...new Set([...extractLinks(note.body), ...detectMentions(note)])];
+  }
+
+  // Notes that link TO the given note (explicit or by mention).
   function backlinksFor(note) {
     if (!note) return [];
     const target = norm(note.title);
     return notes
-      .filter((n) => n.id !== note.id && extractLinks(n.body).some((l) => norm(l) === target))
+      .filter((n) => n.id !== note.id && allLinkTitles(n).some((l) => norm(l) === target))
       .map((n) => ({ note: n, context: linkContext(n.body, note.title) }));
   }
 
   function linkContext(body, title) {
-    const idx = body.toLowerCase().indexOf("[[" + title.toLowerCase());
+    const low = body.toLowerCase(), t = title.toLowerCase();
+    let idx = low.indexOf("[[" + t), len = title.length + 2;
+    if (idx === -1) { idx = low.indexOf(t); len = title.length; }
     if (idx === -1) return "";
     const start = Math.max(0, idx - 40);
-    const end = Math.min(body.length, idx + title.length + 44);
-    let snippet = body.slice(start, end).replace(/\n/g, " ");
-    snippet = escapeHtml(snippet).replace(
-      /\[\[([^\]]+)\]\]/g,
-      (_, t) => `<mark>${escapeHtml(t)}</mark>`
-    );
+    const end = Math.min(body.length, idx + len + 44);
+    let snippet = escapeHtml(body.slice(start, end).replace(/\n/g, " ")).replace(/\[\[|\]\]/g, "");
+    snippet = snippet.replace(new RegExp(escapeRegex(escapeHtml(title)), "i"), (m) => `<mark>${m}</mark>`);
     return (start > 0 ? "…" : "") + snippet + (end < body.length ? "…" : "");
+  }
+
+  // Turn plain-text mentions of note titles into links (no brackets needed).
+  function autoLinkHtml(html, selfTitle) {
+    const titles = notes
+      .map((n) => n.title)
+      .filter((t) => t.trim() && norm(t) !== norm(selfTitle))
+      .sort((a, b) => b.length - a.length);
+    if (titles.length === 0) return html;
+    const re = new RegExp(`(?<![\\w])(${titles.map(escapeRegex).join("|")})(?![\\w])`, "gi");
+    const parts = html.split(/(<[^>]+>)/);
+    let inAnchor = false;
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.startsWith("<")) {
+        if (/^<a\b/i.test(p)) inAnchor = true;
+        else if (/^<\/a>/i.test(p)) inAnchor = false;
+        continue;
+      }
+      if (inAnchor || !p) continue;
+      parts[i] = p.replace(re, (m) => `<a class="wikilink auto" data-link="${escapeHtml(m)}">${m}</a>`);
+    }
+    return parts.join("");
   }
 
   // ============================================================
@@ -163,7 +203,7 @@
     if (!note || notes.length < 2) return [];
     const idf = buildIdf();
     const base = tfidfVec(note, idf);
-    const linked = new Set(extractLinks(note.body).map(norm));
+    const linked = new Set(allLinkTitles(note).map(norm));
     return notes
       .filter((n) => n.id !== note.id && n.title.trim() && !linked.has(norm(n.title)))
       .map((n) => ({ n, score: cosine(base, tfidfVec(n, idf)) }))
@@ -189,7 +229,7 @@
   }
 
   // ---------- Markdown renderer (small, safe, supports [[wiki-links]]) ----------
-  function renderMarkdown(src) {
+  function renderMarkdown(src, selfTitle) {
     // Pull out fenced code blocks first so they aren't mangled.
     const codeBlocks = [];
     src = src.replace(/```([\s\S]*?)```/g, (_, code) => {
@@ -244,7 +284,8 @@
     // Restore code blocks.
     html = html.replace(/\uE000CB(\d+)\uE000/g, (_, i) =>
       `<pre><code>${escapeHtml(codeBlocks[+i])}</code></pre>`);
-    return html;
+    // Auto-link plain mentions of other note titles (no brackets needed).
+    return autoLinkHtml(html, selfTitle);
   }
 
   function inline(text) {
@@ -430,7 +471,7 @@
   }
 
   function updatePreview() {
-    preview.innerHTML = renderMarkdown(bodyInput.value);
+    preview.innerHTML = renderMarkdown(bodyInput.value, titleInput.value);
   }
 
   function flushSave() {
@@ -501,7 +542,7 @@
     const edges = [];
     const explicit = new Set();
     for (const n of notes) {
-      for (const link of extractLinks(n.body)) {
+      for (const link of allLinkTitles(n)) {
         const targetId = byTitle.get(norm(link));
         if (targetId && targetId !== n.id) {
           edges.push({ source: n.id, target: targetId });
@@ -887,11 +928,24 @@
   function currentLinkQuery() {
     const pos = bodyInput.selectionStart;
     const before = bodyInput.value.slice(0, pos);
+    // [[ trigger — explicit wiki-link
     const open = before.lastIndexOf("[[");
-    if (open === -1) return null;
-    const between = before.slice(open + 2);
-    if (/[\]\n]/.test(between) || between.includes("[[")) return null;
-    return { open, query: between, pos };
+    if (open !== -1) {
+      const between = before.slice(open + 2);
+      if (!/[\]\n]/.test(between) && !between.includes("[[")) {
+        return { open, query: between, pos, trigger: "[[" };
+      }
+    }
+    // @ trigger — modern mention (inserts a plain name that auto-links)
+    const at = before.lastIndexOf("@");
+    if (at !== -1) {
+      const between = before.slice(at + 1);
+      // keep it short: up to ~20 chars, no newline, must look like a name fragment
+      if (!/[\n]/.test(between) && between.length <= 20) {
+        return { open: at, query: between, pos, trigger: "@" };
+      }
+    }
+    return null;
   }
 
   function showAuto() {
@@ -926,8 +980,10 @@
     const ctx = currentLinkQuery();
     if (!m || !ctx) return hideAuto();
     const val = bodyInput.value;
-    bodyInput.value = val.slice(0, ctx.open) + "[[" + m.title + "]]" + val.slice(ctx.pos);
-    const caret = ctx.open + m.title.length + 4;
+    // @ inserts a plain name (auto-links); [[ inserts an explicit wiki-link.
+    const insert = ctx.trigger === "@" ? m.title : "[[" + m.title + "]]";
+    bodyInput.value = val.slice(0, ctx.open) + insert + val.slice(ctx.pos);
+    const caret = ctx.open + insert.length;
     bodyInput.setSelectionRange(caret, caret);
     hideAuto();
     scheduleSave();
@@ -967,7 +1023,7 @@
   });
 
   // ---------- Boot ----------
-  const BUILD = "v7";
+  const BUILD = "v8";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();

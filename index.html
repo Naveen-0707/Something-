@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Second Brain — Local-First Notes</title>
   <meta name="description" content="A local-first second brain: wiki-links, backlinks, full-text search, and a graph view. No backend, your data stays in your browser." />
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=8" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" />
 </head>
 <body>
@@ -58,7 +58,7 @@
 
         <div class="editor-body">
           <textarea id="bodyInput" class="body-input" spellcheck="true"
-            placeholder="Write in Markdown. Link other notes with [[Note Title]].&#10;&#10;Try: # Heading, **bold**, *italic*, `code`, - lists"></textarea>
+            placeholder="Just write. Type another note's name and it links automatically — or type @ to pick one.&#10;&#10;Markdown works too: # Heading, **bold**, *italic*, `code`, - lists"></textarea>
           <div id="preview" class="preview" hidden></div>
         </div>
 
@@ -90,6 +90,6 @@
   <div id="toast" class="toast" hidden></div>
   <div id="buildBadge" class="build-badge"></div>
 
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
