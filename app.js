@@ -793,7 +793,7 @@
   });
 
   // ---------- Boot ----------
-  const BUILD = "v3";
+  const BUILD = "v4";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();
