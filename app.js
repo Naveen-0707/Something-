@@ -591,6 +591,10 @@
     flushSaveImmediate();
     createNote("", "");
     refreshAll();
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      sidebar.classList.remove("open");
+      backdrop.classList.remove("show");
+    }
     titleInput.focus();
   }
 
@@ -612,6 +616,19 @@
     if (show) updatePreview();
     $("#previewToggle").textContent = show ? "✎ Edit" : "👁 Preview";
   }
+
+  // ---------- Mobile sidebar toggle ----------
+  const sidebar = $("#sidebar");
+  const backdrop = $("#backdrop");
+  const isMobile = () => window.matchMedia("(max-width: 760px)").matches;
+  function openSidebar() { sidebar.classList.add("open"); backdrop.classList.add("show"); }
+  function closeSidebar() { sidebar.classList.remove("open"); backdrop.classList.remove("show"); }
+  function toggleSidebar() { sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); }
+  $("#menuBtn").addEventListener("click", toggleSidebar);
+  backdrop.addEventListener("click", closeSidebar);
+  // On mobile, picking a note or backlink should reveal the editor.
+  noteList.addEventListener("click", () => { if (isMobile()) closeSidebar(); });
+  backlinksEl.addEventListener("click", () => { if (isMobile()) closeSidebar(); });
 
   $("#graphBtn").addEventListener("click", openGraph);
   $("#closeGraph").addEventListener("click", closeGraph);
