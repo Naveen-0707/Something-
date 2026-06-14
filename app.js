@@ -378,7 +378,7 @@
     const btn = $("#pinBtn");
     const n = getNote(activeId);
     if (!btn || !n) return; // tolerate older cached HTML
-    btn.style.opacity = n.pinned ? "1" : "0.5";
+    btn.textContent = n.pinned ? "📌 Unpin" : "📌 Pin";
     btn.title = n.pinned ? "Unpin note" : "Pin note to top";
   }
 
@@ -578,9 +578,9 @@
     for (const e of graph.edges) {
       const a = graph.nodeById.get(e.source), b = graph.nodeById.get(e.target);
       if (e.suggested) {
-        ctx.strokeStyle = "rgba(111,211,197,0.30)"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(58,169,159,0.32)"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
       } else {
-        ctx.strokeStyle = "rgba(124,156,255,0.45)"; ctx.lineWidth = 1.4; ctx.setLineDash([]);
+        ctx.strokeStyle = "rgba(67,133,190,0.50)"; ctx.lineWidth = 1.4; ctx.setLineDash([]);
       }
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
@@ -590,13 +590,13 @@
       const radius = 5 + Math.min(n.deg, 8) * 1.8;
       ctx.beginPath();
       ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = n.id === activeId ? "#7c9cff" : "#6fd3c5";
+      ctx.fillStyle = n.id === activeId ? "#4385be" : "#3aa99f";
       ctx.fill();
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#0f1115";
+      ctx.strokeStyle = "#100f0f";
       ctx.stroke();
 
-      ctx.fillStyle = "#e6e9ef";
+      ctx.fillStyle = "#cecdc3";
       ctx.font = "12px -apple-system, sans-serif";
       ctx.textAlign = "center";
       const label = n.title.length > 22 ? n.title.slice(0, 21) + "…" : n.title;
@@ -812,6 +812,34 @@
     e.target.value = "";
   });
 
+  // ---------- More (overflow) menu ----------
+  const moreMenu = $("#moreMenu");
+  const closeMore = () => { if (moreMenu) moreMenu.hidden = true; };
+  $("#moreBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (moreMenu) moreMenu.hidden = !moreMenu.hidden;
+  });
+  // Close after picking any action, or when tapping outside.
+  moreMenu?.addEventListener("click", (e) => { if (e.target.closest("button")) setTimeout(closeMore, 0); });
+  document.addEventListener("click", (e) => {
+    if (moreMenu && !moreMenu.hidden && !e.target.closest(".more-wrap")) closeMore();
+  });
+
+  // ---------- Export single note as Markdown ----------
+  $("#exportOneBtn")?.addEventListener("click", () => {
+    const n = getNote(activeId);
+    if (!n) return;
+    const body = n.body.trim().startsWith("#") ? n.body : `# ${n.title || "Untitled"}\n\n${n.body}`;
+    const blob = new Blob([body], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(n.title || "note").replace(/[^\w\- ]+/g, "").trim() || "note"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Exported note as .md");
+  });
+
   // ---------- Summarize ----------
   $("#summarizeBtn")?.addEventListener("click", () => {
     const n = getNote(activeId);
@@ -937,7 +965,7 @@
   });
 
   // ---------- Boot ----------
-  const BUILD = "v5";
+  const BUILD = "v6";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();
