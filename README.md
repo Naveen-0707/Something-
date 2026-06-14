@@ -8,8 +8,10 @@ no build step. Your notes never leave your browser.
 
 ## ✨ Features
 
-- **`[[Wiki-links]]`** — link any note to another. Click a link to jump there;
-  if the note doesn't exist yet, it's created for you. Aliases supported: `[[Note|label]]`.
+- **`[[Wiki-links]]` with autocomplete** — start typing `[[` and pick a note from a
+  dropdown (or create a new one). Click a link to jump there. Aliases: `[[Note|label]]`.
+- **Tags** — write `#anything` in a note; tap a tag chip in the sidebar to filter.
+- **Pin notes** — keep important notes at the top of the list.
 - **Backlinks** — every note shows which other notes point to it, with context snippets.
 - **Knowledge graph** — a force-directed view of your whole brain. Drag nodes,
   scroll to zoom, click to open. Bigger nodes = more connections.
