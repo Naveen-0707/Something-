@@ -116,6 +116,78 @@
     return (start > 0 ? "…" : "") + snippet + (end < body.length ? "…" : "");
   }
 
+  // ============================================================
+  //  SMART ENGINE — content similarity & summaries (all offline)
+  // ============================================================
+  const STOPWORDS = new Set(
+    ("the a an and or but if then else of to in on at for with by from as is are was were be been being this that these those it its i you he she we they them his her their our your my me do does did have has had not no yes can will just so up out about into over after before more most some any all each every here there what which who when where why how also very really too our".split(" "))
+  );
+
+  function tokenize(text) {
+    return (String(text).toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || []).filter((w) => !STOPWORDS.has(w));
+  }
+
+  function termFreq(note) {
+    const m = new Map();
+    for (const w of tokenize(note.title + " " + note.body)) m.set(w, (m.get(w) || 0) + 1);
+    return m;
+  }
+
+  // Inverse document frequency across all notes — rare words count more.
+  function buildIdf() {
+    const df = new Map();
+    for (const n of notes) {
+      for (const w of new Set(tokenize(n.title + " " + n.body))) df.set(w, (df.get(w) || 0) + 1);
+    }
+    const N = notes.length || 1;
+    const idf = new Map();
+    for (const [w, c] of df) idf.set(w, Math.log(1 + N / c));
+    return idf;
+  }
+
+  function tfidfVec(note, idf) {
+    const v = new Map();
+    for (const [w, c] of termFreq(note)) v.set(w, c * (idf.get(w) || 0));
+    return v;
+  }
+
+  function cosine(a, b) {
+    let dot = 0, na = 0, nb = 0;
+    for (const [w, x] of a) { na += x * x; if (b.has(w)) dot += x * b.get(w); }
+    for (const [, y] of b) nb += y * y;
+    return na && nb ? dot / Math.sqrt(na * nb) : 0;
+  }
+
+  // Notes most similar to the given one that aren't already linked.
+  function relatedNotes(note, k = 3) {
+    if (!note || notes.length < 2) return [];
+    const idf = buildIdf();
+    const base = tfidfVec(note, idf);
+    const linked = new Set(extractLinks(note.body).map(norm));
+    return notes
+      .filter((n) => n.id !== note.id && n.title.trim() && !linked.has(norm(n.title)))
+      .map((n) => ({ n, score: cosine(base, tfidfVec(n, idf)) }))
+      .filter((x) => x.score > 0.06)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k);
+  }
+
+  // Extractive summary: keep the highest-scoring sentences by word importance.
+  function summarize(text, maxSentences = 2) {
+    const clean = String(text).replace(/[#>*`~|]/g, " ").replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, "$1");
+    const sentences = clean.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter((s) => s.length > 15);
+    if (sentences.length <= maxSentences) return sentences.join(" ") || "Not enough text to summarize yet.";
+    const freq = new Map();
+    for (const w of tokenize(text)) freq.set(w, (freq.get(w) || 0) + 1);
+    return sentences
+      .map((s, i) => ({ s, i, sc: tokenize(s).reduce((a, w) => a + (freq.get(w) || 0), 0) / Math.sqrt(tokenize(s).length || 1) }))
+      .sort((a, b) => b.sc - a.sc)
+      .slice(0, maxSentences)
+      .sort((a, b) => a.i - b.i)
+      .map((x) => x.s)
+      .join(" ");
+  }
+
   // ---------- Markdown renderer (small, safe, supports [[wiki-links]]) ----------
   function renderMarkdown(src) {
     // Pull out fenced code blocks first so they aren't mangled.
@@ -298,6 +370,7 @@
     if (!preview.hidden) updatePreview();
     renderList(searchInput.value);
     renderBacklinks();
+    renderSmartPanel();
     updatePinBtn();
   }
 
@@ -319,6 +392,41 @@
            <div class="bl-title">${escapeHtml(l.note.title || "Untitled")}</div>
            <div class="bl-ctx">${l.context}</div>
          </div>`).join("");
+  }
+
+  // Smart panel: optional summary + content-based "suggested connections".
+  function renderSmartPanel(summaryText) {
+    const panel = $("#smartPanel");
+    if (!panel) return;
+    const n = getNote(activeId);
+    if (!n) { panel.innerHTML = ""; return; }
+    let html = "";
+    if (summaryText) {
+      html += `<div class="sp-summary"><h4>✨ Summary</h4><p>${escapeHtml(summaryText)}</p></div>`;
+    }
+    const related = relatedNotes(n, 3);
+    if (related.length) {
+      html += `<h4>🔗 Suggested connections</h4>` + related.map((r) =>
+        `<div class="related-item">
+           <span class="ri-title" data-open="${r.n.id}">${escapeHtml(r.n.title || "Untitled")}</span>
+           <span class="ri-score">${Math.round(r.score * 100)}% match</span>
+           <button class="ri-link btn ghost" data-link="${escapeHtml(r.n.title)}">+ Link</button>
+         </div>`).join("");
+    }
+    panel.innerHTML = html;
+  }
+
+  // Append a [[link]] to the active note (used by "+ Link" suggestions).
+  function linkActiveNoteTo(title) {
+    const n = getNote(activeId);
+    if (!n) return;
+    if (extractLinks(n.body).some((l) => norm(l) === norm(title))) return;
+    const sep = n.body && !n.body.endsWith("\n") ? "\n\n" : "";
+    n.body += `${sep}Related: [[${title}]]`;
+    bodyInput.value = n.body;
+    flushSaveImmediate();
+    if (!preview.hidden) updatePreview();
+    toast(`Linked to “${title}”`);
   }
 
   function updatePreview() {
@@ -391,13 +499,27 @@
     }));
     const nodeById = new Map(nodes.map((nd) => [nd.id, nd]));
     const edges = [];
+    const explicit = new Set();
     for (const n of notes) {
       for (const link of extractLinks(n.body)) {
         const targetId = byTitle.get(norm(link));
         if (targetId && targetId !== n.id) {
           edges.push({ source: n.id, target: targetId });
+          explicit.add([n.id, targetId].sort().join("|"));
           nodeById.get(n.id).deg++;
           nodeById.get(targetId).deg++;
+        }
+      }
+    }
+    // Suggested edges: content similarity above a threshold, not already linked.
+    const idf = buildIdf();
+    const vecs = new Map(notes.map((n) => [n.id, tfidfVec(n, idf)]));
+    for (let i = 0; i < notes.length; i++) {
+      for (let j = i + 1; j < notes.length; j++) {
+        const pair = [notes[i].id, notes[j].id].sort().join("|");
+        if (explicit.has(pair)) continue;
+        if (cosine(vecs.get(notes[i].id), vecs.get(notes[j].id)) > 0.18) {
+          edges.push({ source: notes[i].id, target: notes[j].id, suggested: true });
         }
       }
     }
@@ -452,13 +574,17 @@
     ctx.translate(r.width / 2 + view.x, r.height / 2 + view.y);
     ctx.scale(view.scale, view.scale);
 
-    // edges
-    ctx.strokeStyle = "rgba(124,156,255,0.25)";
-    ctx.lineWidth = 1;
+    // edges — solid for explicit links, dashed for content suggestions
     for (const e of graph.edges) {
       const a = graph.nodeById.get(e.source), b = graph.nodeById.get(e.target);
+      if (e.suggested) {
+        ctx.strokeStyle = "rgba(111,211,197,0.30)"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      } else {
+        ctx.strokeStyle = "rgba(124,156,255,0.45)"; ctx.lineWidth = 1.4; ctx.setLineDash([]);
+      }
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
+    ctx.setLineDash([]);
     // nodes
     for (const n of graph.nodes) {
       const radius = 5 + Math.min(n.deg, 8) * 1.8;
@@ -584,16 +710,18 @@
   function seed() {
     const now = Date.now();
     const samples = [
-      ["Welcome to your Second Brain",
-        "# Welcome 👋\n\nThis is your **second brain** — a place to capture ideas and connect them. #start\n\n## How linking works\nStart typing `[[` and an **autocomplete** menu pops up — pick a note to link it, like [[Zettelkasten]].\nIf the note doesn't exist yet, choosing **+ Create** makes it for you.\n\nTry opening the [[Graph View]] to see how everything connects.\n\n## Markdown\n- **bold**, *italic*, `code`\n- > blockquotes\n- lists like this one\n\nSee also: [[Tips & Shortcuts]]"],
-      ["Zettelkasten",
-        "# Zettelkasten #method\n\nA note-taking method built on small, atomic notes that link to each other. Coined by sociologist Niklas Luhmann.\n\nThe power comes from **connections**, not folders — exactly what [[Welcome to your Second Brain]] is about.\n\nRelated idea: [[Atomic Notes]]."],
-      ["Atomic Notes",
-        "# Atomic Notes #method\n\nEach note should hold **one idea**. Small notes are easier to link and reuse.\n\nThis is a core principle of the [[Zettelkasten]] method."],
-      ["Graph View",
-        "# Graph View\n\nThe graph shows every note as a node and every [[wiki-link]] as an edge.\n\nBigger nodes have more connections. **Drag** nodes around, **scroll** to zoom, and **click** a node to jump to that note.\n\nIt's the fastest way to spot clusters and orphan notes."],
-      ["Tips & Shortcuts",
-        "# Tips & Shortcuts #start\n\n**Tags:** write `#anything` in a note and a tag chip appears in the sidebar — tap it to filter. Try [[Zettelkasten]] which is tagged too.\n\n**Pin:** tap 📌 in the toolbar to keep a note at the top of the list.\n\n**Link fast:** type `[[` for autocomplete.\n\n| Shortcut | Action |\n|---|---|\n| Ctrl/Cmd + N | New note |\n| Ctrl/Cmd + K | Focus search |\n| Ctrl/Cmd + E | Toggle preview |\n| Ctrl/Cmd + G | Toggle graph |\n\nYour data lives entirely in this browser. Use **Export** to back it up as JSON."],
+      ["📖 Start Here",
+        "# Welcome! 👋 #start\n\nThink of this app like a notebook where pages can **hold hands** with each other.\n\n## Try it in 1 minute\n1. Tap **☰** then **+ New** to make a page.\n2. Type some words about anything you like.\n3. To connect two pages, type two square brackets: `[[` and a little menu pops up. Pick a page!\n\nHere are pages I already made for you — tap them:\n- [[My Dog Bruno]] 🐶\n- [[Pizza Night]] 🍕\n- [[My Best Friend Mia]] 🧑‍🤝‍🧑\n- [[The Park]] 🌳\n- [[School]] 🏫\n\n## Cool buttons\n- **✨ Summarize** — makes a short version of a long page.\n- **🔗 Suggested connections** (at the bottom) — the app reads your page and guesses which other pages are about the same thing!\n- **🕸 Graph** — see all your pages as dots joined by lines."],
+      ["My Dog Bruno",
+        "# My Dog Bruno 🐶 #pets\n\nBruno is my brown dog. He is fluffy and loves to run fast.\n\nEvery morning I take Bruno for a walk at [[The Park]]. He likes to play with the ball and chase birds.\n\nMy friend [[My Best Friend Mia]] has a cat, but Bruno is not scared of cats!"],
+      ["Pizza Night",
+        "# Pizza Night 🍕 #food\n\nFriday is pizza night! My favorite is cheese pizza with extra cheese.\n\nWe eat pizza together with [[My Best Friend Mia]]. Sometimes we eat it after playing at [[The Park]].\n\nDad says too much pizza is bad, but I think pizza is the best food in the world."],
+      ["My Best Friend Mia",
+        "# My Best Friend Mia 🧑‍🤝‍🧑 #people\n\nMia is my best friend. We are in the same class at [[School]].\n\nWe love to share [[Pizza Night]] and play games. Mia is very funny and kind.\n\nShe also likes my dog [[My Dog Bruno]] and gives him treats."],
+      ["The Park",
+        "# The Park 🌳 #places\n\nThe park is near my house. It has big trees, swings, and lots of green grass.\n\nI walk [[My Dog Bruno]] here every morning. Sometimes [[My Best Friend Mia]] comes too and we play on the swings.\n\nThe park is my favorite place to have fun outside."],
+      ["School",
+        "# School 🏫 #places\n\nI go to school every weekday. My favorite subjects are art and science.\n\nMy friend [[My Best Friend Mia]] sits next to me in class. After school, I run home to play with [[My Dog Bruno]].\n\nOn Fridays I am extra happy because it is [[Pizza Night]]!"],
     ];
     notes = samples.map(([title, body], i) => ({
       id: uid(), title, body, created: now - i * 1000, updated: now - i * 1000,
@@ -682,6 +810,22 @@
   $("#importFile").addEventListener("change", (e) => {
     if (e.target.files[0]) importNotes(e.target.files[0]);
     e.target.value = "";
+  });
+
+  // ---------- Summarize ----------
+  $("#summarizeBtn")?.addEventListener("click", () => {
+    const n = getNote(activeId);
+    if (!n || !n.body.trim()) { toast("Write something first"); return; }
+    renderSmartPanel(summarize(n.body, 2));
+    $("#smartPanel")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  // ---------- Smart panel clicks (open suggestion / add link) ----------
+  $("#smartPanel")?.addEventListener("click", (e) => {
+    const open = e.target.closest(".ri-title");
+    const link = e.target.closest(".ri-link");
+    if (open) { openNote(open.dataset.open); if (isMobile()) closeSidebar(); }
+    else if (link) { linkActiveNoteTo(link.dataset.link); renderSmartPanel(); }
   });
 
   // ---------- Pin / unpin ----------
@@ -793,7 +937,7 @@
   });
 
   // ---------- Boot ----------
-  const BUILD = "v4";
+  const BUILD = "v5";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();
