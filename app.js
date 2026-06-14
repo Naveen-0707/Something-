@@ -710,18 +710,20 @@
   function seed() {
     const now = Date.now();
     const samples = [
-      ["📖 Start Here",
-        "# Welcome! 👋 #start\n\nThink of this app like a notebook where pages can **hold hands** with each other.\n\n## Try it in 1 minute\n1. Tap **☰** then **+ New** to make a page.\n2. Type some words about anything you like.\n3. To connect two pages, type two square brackets: `[[` and a little menu pops up. Pick a page!\n\nHere are pages I already made for you — tap them:\n- [[My Dog Bruno]] 🐶\n- [[Pizza Night]] 🍕\n- [[My Best Friend Mia]] 🧑‍🤝‍🧑\n- [[The Park]] 🌳\n- [[School]] 🏫\n\n## Cool buttons\n- **✨ Summarize** — makes a short version of a long page.\n- **🔗 Suggested connections** (at the bottom) — the app reads your page and guesses which other pages are about the same thing!\n- **🕸 Graph** — see all your pages as dots joined by lines."],
-      ["My Dog Bruno",
-        "# My Dog Bruno 🐶 #pets\n\nBruno is my brown dog. He is fluffy and loves to run fast.\n\nEvery morning I take Bruno for a walk at [[The Park]]. He likes to play with the ball and chase birds.\n\nMy friend [[My Best Friend Mia]] has a cat, but Bruno is not scared of cats!"],
-      ["Pizza Night",
-        "# Pizza Night 🍕 #food\n\nFriday is pizza night! My favorite is cheese pizza with extra cheese.\n\nWe eat pizza together with [[My Best Friend Mia]]. Sometimes we eat it after playing at [[The Park]].\n\nDad says too much pizza is bad, but I think pizza is the best food in the world."],
-      ["My Best Friend Mia",
-        "# My Best Friend Mia 🧑‍🤝‍🧑 #people\n\nMia is my best friend. We are in the same class at [[School]].\n\nWe love to share [[Pizza Night]] and play games. Mia is very funny and kind.\n\nShe also likes my dog [[My Dog Bruno]] and gives him treats."],
-      ["The Park",
-        "# The Park 🌳 #places\n\nThe park is near my house. It has big trees, swings, and lots of green grass.\n\nI walk [[My Dog Bruno]] here every morning. Sometimes [[My Best Friend Mia]] comes too and we play on the swings.\n\nThe park is my favorite place to have fun outside."],
-      ["School",
-        "# School 🏫 #places\n\nI go to school every weekday. My favorite subjects are art and science.\n\nMy friend [[My Best Friend Mia]] sits next to me in class. After school, I run home to play with [[My Dog Bruno]].\n\nOn Fridays I am extra happy because it is [[Pizza Night]]!"],
+      ["Project: Apollo Website Redesign",
+        "# Project: Apollo Website Redesign #project\n\n**Goal:** redesign the marketing site to lift sign-ups by 20% before Q4.\n\n**Team:** [[Priya Sharma]] (design) · [[Alex Chen]] (engineering)\n\n**Status:** 🟢 On track — latest in [[Apollo Weekly Status]]\n\n## Key links\n- Kickoff notes → [[Apollo Kickoff Meeting]]\n- Open work → [[Task: Homepage Mockup]]\n- Big decision → [[Decision: New Brand Colors]]\n\n> 👇 Scroll down to see **Backlinks** (everything that points here) and 🔗 **Suggested connections**. Open the **🕸 Graph** to see the whole project at a glance.\n\nThis one note becomes the hub of the whole project — you never lose the thread."],
+      ["Apollo Kickoff Meeting",
+        "# Apollo Kickoff Meeting #meeting\n\n**Date:** Jun 10 · **Attendees:** [[Priya Sharma]], [[Alex Chen]]\n\n## Notes\n- Reviewed goals for [[Project: Apollo Website Redesign]].\n- Homepage is the priority — tracked in [[Task: Homepage Mockup]].\n- Locked the visual direction: [[Decision: New Brand Colors]].\n\n## Action items\n- Priya: first homepage mockup by Friday\n- Alex: set up the staging site"],
+      ["Priya Sharma",
+        "# Priya Sharma #people\n\n**Role:** Product Designer\n**Owns:** visual design for [[Project: Apollo Website Redesign]]\n**Email:** priya@example.com\n\nCurrently on [[Task: Homepage Mockup]]. Works in Figma. Out next Monday.\n\n*(Months from now, search \"Priya\" and instantly recall everything you've worked on together.)*"],
+      ["Alex Chen",
+        "# Alex Chen #people\n\n**Role:** Frontend Engineer\n**Owns:** build & deploy for [[Project: Apollo Website Redesign]]\n**Email:** alex@example.com\n\nWaiting on [[Decision: New Brand Colors]] before final styling."],
+      ["Task: Homepage Mockup",
+        "# Task: Homepage Mockup #task\n\n**Owner:** [[Priya Sharma]] · **Due:** Friday · **Status:** In progress\n**Part of:** [[Project: Apollo Website Redesign]]\n\nBlocked until [[Decision: New Brand Colors]] is final, then deliver desktop + mobile mockups."],
+      ["Decision: New Brand Colors",
+        "# Decision: New Brand Colors #decision\n\n**Decided in:** [[Apollo Kickoff Meeting]]\n\nUse a warm 'ink on paper' palette (deep charcoal + blue/cyan accents) for [[Project: Apollo Website Redesign]].\n\n**Why:** higher contrast, easier on the eyes, on-brand. Affects [[Task: Homepage Mockup]] and Alex's styling."],
+      ["Apollo Weekly Status",
+        "# Apollo Weekly Status #status\n\nThis week the team kicked off [[Project: Apollo Website Redesign]] and locked the brand direction. [[Priya Sharma]] began the homepage mockup while [[Alex Chen]] prepared the staging environment. The main open item is [[Task: Homepage Mockup]], which is on track for Friday. Next week we move into building the homepage and reviewing the first draft with stakeholders. Overall the project is on schedule and there are no blockers now that the palette is resolved in [[Decision: New Brand Colors]]. Try the ✨ Summarize button on this note to shrink it to the key points."],
     ];
     notes = samples.map(([title, body], i) => ({
       id: uid(), title, body, created: now - i * 1000, updated: now - i * 1000,
@@ -965,7 +967,7 @@
   });
 
   // ---------- Boot ----------
-  const BUILD = "v6";
+  const BUILD = "v7";
   const buildBadge = $("#buildBadge");
   if (buildBadge) buildBadge.textContent = "Second Brain " + BUILD;
   load();
