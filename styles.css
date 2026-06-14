@@ -263,9 +263,28 @@ html, body {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #3a4151; }
 
+/* ---------- Mobile menu button (hidden on desktop) ---------- */
+.menu-btn { display: none; font-size: 18px; padding: 6px 11px; }
+
+/* Backdrop shown behind the open sidebar on mobile */
+.backdrop {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9;
+}
+.backdrop.show { display: block; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
   #app { grid-template-columns: 1fr; }
-  #sidebar { position: absolute; z-index: 10; width: 280px; height: 100%; box-shadow: var(--shadow); transform: translateX(-100%); transition: transform .2s; }
+  #sidebar {
+    position: fixed; top: 0; left: 0; z-index: 10; width: 84%; max-width: 320px; height: 100%;
+    box-shadow: var(--shadow); transform: translateX(-100%); transition: transform .22s ease;
+  }
   #sidebar.open { transform: none; }
+  .menu-btn { display: inline-flex; align-items: center; }
+  .editor-bar { padding: 12px 14px; gap: 8px; }
+  .title-input { font-size: 19px; }
+  .body-input, .preview { padding: 16px; }
+  /* Give touch targets more room */
+  .note-item { padding: 12px 12px; }
+  .sidebar-foot .btn { padding: 10px 4px; }
 }
